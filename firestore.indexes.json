@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "practiceAttempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "attemptedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
