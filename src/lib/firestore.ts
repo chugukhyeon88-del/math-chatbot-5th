@@ -6,7 +6,6 @@ import {
   getDocs,
   query,
   where,
-  orderBy,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -67,14 +66,11 @@ export async function savePracticeAttempt(attempt: Omit<PracticeAttempt, 'id'>) 
 }
 
 export async function getAllStudentsProgress() {
-  const attemptsSnap = await getDocs(
-    query(collection(db, 'practiceAttempts'), orderBy('attemptedAt', 'desc'))
-  );
+  // orderBy 제거 — 복합 인덱스 불필요
+  const attemptsSnap = await getDocs(collection(db, 'practiceAttempts'));
   const attempts = attemptsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PracticeAttempt));
 
-  const chatSnap = await getDocs(
-    query(collection(db, 'chatSessions'), orderBy('updatedAt', 'desc'))
-  );
+  const chatSnap = await getDocs(collection(db, 'chatSessions'));
   const chatSessions = chatSnap.docs.map((d) => ({ id: d.id, ...d.data() } as ChatSession));
 
   return { attempts, chatSessions };
@@ -82,11 +78,7 @@ export async function getAllStudentsProgress() {
 
 export async function getStudentProgress(userId: string) {
   const attemptsSnap = await getDocs(
-    query(
-      collection(db, 'practiceAttempts'),
-      where('userId', '==', userId),
-      orderBy('attemptedAt', 'desc')
-    )
+    query(collection(db, 'practiceAttempts'), where('userId', '==', userId))
   );
   return attemptsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as PracticeAttempt));
 }

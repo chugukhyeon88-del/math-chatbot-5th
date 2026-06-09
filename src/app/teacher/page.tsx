@@ -76,9 +76,10 @@ export default function TeacherPage() {
       }
 
       setStudents(Object.values(map).sort((a, b) => b.totalScore - a.totalScore));
-    } catch (e) {
+    } catch (e: unknown) {
       console.error(e);
-      setError('데이터를 불러오는 중 오류가 발생했습니다. 다시 시도해 주세요.');
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`데이터 로드 오류: ${msg}`);
     } finally {
       setLoading(false);
     }
