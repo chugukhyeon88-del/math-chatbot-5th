@@ -18,7 +18,7 @@ interface StudentSummary {
   chatSessions: ChatSession[];
 }
 
-type Tab = 'overview' | 'detail' | 'problems' | 'chat';
+type Tab = 'overview' | 'detail' | 'problems' | 'chat' | 'comment';
 type SyncState = 'idle' | 'syncing' | 'done' | 'error';
 
 export default function TeacherPage() {
@@ -191,6 +191,7 @@ export default function TeacherPage() {
     { key: 'detail',   label: '📋 상세 보기' },
     { key: 'problems', label: '📝 문제별 분석' },
     { key: 'chat',     label: '💬 대화 내용' },
+    { key: 'comment',  label: '✍️ 평어 생성' },
   ];
 
   return (
@@ -280,6 +281,7 @@ export default function TeacherPage() {
           {tab === 'detail'    && <DetailTab students={students} selected={selectedStudent} onSelect={setSelectedStudent} />}
           {tab === 'problems'  && <ProblemsTab students={students} />}
           {tab === 'chat'      && <ChatTab students={students} selected={selectedStudent} onSelect={setSelectedStudent} />}
+          {tab === 'comment'   && <CommentTab students={students} selected={selectedStudent} onSelect={setSelectedStudent} />}
         </>
       )}
     </div>
@@ -522,6 +524,205 @@ function ChatTab({ students, selected, onSelect }: { students: StudentSummary[];
             );
           })
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── Comment Tab ───────────────────────── */
+function CommentTab({ students, selected, onSelect }: {
+  students: StudentSummary[];
+  selected: StudentSummary | null;
+  onSelect: (s: StudentSummary) => void;
+}) {
+  const s = selected || students[0];
+  const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  const [comments, setComments] = useState<Record<string, { text: string; level: string }>>({});
+  const [copied, setCopied] = useState<Record<string, boolean>>({});
+  const [allGenerating, setAllGenerating] = useState(false);
+
+  if (!s) return null;
+
+  const buildStudentData = (student: StudentSummary) => {
+    const accuracy = student.totalAttempts
+      ? Math.round((student.correctCount / student.totalAttempts) * 100) : 0;
+    const problemResults: Record<string, { correct: boolean; attempts: number; title: string }> = {};
+    Object.entries(student.problemResults).forEach(([id, r]) => {
+      const title = id.startsWith('custom_') ? `내가 만든 문제(${id.replace('custom_', '')})` : id;
+      problemResults[id] = { ...r, title };
+    });
+
+    // 챗봇 대화에서 학생 질문만 추출 (최근 5개)
+    const userMsgs = student.chatSessions
+      .flatMap((cs) => cs.messages?.filter((m) => m.role === 'user') ?? [])
+      .slice(-5)
+      .map((m) => m.content.slice(0, 60))
+      .join(' / ');
+
+    return {
+      userName: student.userName,
+      totalScore: student.totalScore,
+      totalAttempts: student.totalAttempts,
+      correctCount: student.correctCount,
+      solvedProblems: Object.values(student.problemResults).filter((r) => r.correct).length,
+      totalProblems: 10,
+      chatCount: student.chatCount,
+      problemResults,
+      chatSummary: userMsgs || '없음',
+    };
+  };
+
+  const generateComment = async (student: StudentSummary) => {
+    setGenerating((prev) => ({ ...prev, [student.userId]: true }));
+    try {
+      const res = await fetch('/api/generate-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildStudentData(student)),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setComments((prev) => ({ ...prev, [student.userId]: { text: data.comment, level: data.level } }));
+    } catch (e) {
+      alert('평어 생성 실패: ' + (e instanceof Error ? e.message : '오류'));
+    } finally {
+      setGenerating((prev) => ({ ...prev, [student.userId]: false }));
+    }
+  };
+
+  const generateAll = async () => {
+    setAllGenerating(true);
+    for (const student of students) {
+      await generateComment(student);
+    }
+    setAllGenerating(false);
+  };
+
+  const copyComment = (userId: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied((prev) => ({ ...prev, [userId]: true }));
+    setTimeout(() => setCopied((prev) => ({ ...prev, [userId]: false })), 2000);
+  };
+
+  const levelColor = (level: string) => {
+    if (level === '상') return 'bg-green-100 text-green-700 border-green-200';
+    if (level === '중') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    return 'bg-red-100 text-red-600 border-red-200';
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* 상단 안내 + 전체 생성 */}
+      <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-2xl p-5 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="font-bold text-gray-800 mb-1">✍️ AI 교과 평어 생성</h2>
+          <p className="text-sm text-gray-600">학생의 연습 문제 성취도와 챗봇 대화 내용을 분석하여 학생부 평어를 자동 작성합니다.</p>
+          <p className="text-xs text-gray-400 mt-1">성취기준 [6수02-01] 기반 · 상/중/하 수준 자동 판단</p>
+        </div>
+        <button
+          onClick={generateAll}
+          disabled={allGenerating}
+          className="flex items-center gap-2 bg-purple-500 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-purple-600 disabled:opacity-50 transition-colors whitespace-nowrap"
+        >
+          {allGenerating ? (
+            <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />전체 생성 중...</>
+          ) : '✨ 전체 학생 평어 생성'}
+        </button>
+      </div>
+
+      {/* 학생별 평어 카드 */}
+      <div className="space-y-4">
+        {students.map((student) => {
+          const comment = comments[student.userId];
+          const isLoading = generating[student.userId];
+          const accuracy = student.totalAttempts
+            ? Math.round((student.correctCount / student.totalAttempts) * 100) : 0;
+          const solved = Object.values(student.problemResults).filter((r) => r.correct).length;
+
+          return (
+            <div
+              key={student.userId}
+              className={`bg-white rounded-2xl border-2 transition-colors ${
+                comment ? 'border-purple-200' : 'border-gray-100'
+              } p-5`}
+            >
+              {/* 학생 정보 헤더 */}
+              <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-lg">👤</div>
+                  <div>
+                    <p className="font-bold text-gray-800">{student.userName || '이름 없음'}</p>
+                    <p className="text-xs text-gray-400">{student.userEmail}</p>
+                  </div>
+                  {comment && (
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${levelColor(comment.level)}`}>
+                      {comment.level} 수준
+                    </span>
+                  )}
+                </div>
+                {/* 간략 통계 */}
+                <div className="flex gap-3 text-xs text-gray-500 flex-wrap">
+                  <span className="bg-gray-50 rounded-lg px-2 py-1">📝 {solved}/10문제</span>
+                  <span className="bg-gray-50 rounded-lg px-2 py-1">✅ 정답률 {accuracy}%</span>
+                  <span className="bg-gray-50 rounded-lg px-2 py-1">💬 대화 {student.chatCount}회</span>
+                </div>
+              </div>
+
+              {/* 평어 내용 or 생성 버튼 */}
+              {comment ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={comment.text}
+                    onChange={(e) =>
+                      setComments((prev) => ({
+                        ...prev,
+                        [student.userId]: { ...prev[student.userId], text: e.target.value },
+                      }))
+                    }
+                    rows={4}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 leading-relaxed resize-none focus:outline-none focus:border-purple-400"
+                  />
+                  <div className="flex gap-2 justify-end flex-wrap">
+                    <button
+                      onClick={() => generateComment(student)}
+                      disabled={isLoading}
+                      className="text-sm text-purple-600 border border-purple-300 px-3 py-1.5 rounded-xl hover:bg-purple-50 disabled:opacity-40 transition-colors"
+                    >
+                      {isLoading ? '생성 중...' : '🔄 재생성'}
+                    </button>
+                    <button
+                      onClick={() => copyComment(student.userId, comment.text)}
+                      className={`text-sm px-4 py-1.5 rounded-xl font-medium transition-colors ${
+                        copied[student.userId]
+                          ? 'bg-green-500 text-white'
+                          : 'bg-purple-500 text-white hover:bg-purple-600'
+                      }`}
+                    >
+                      {copied[student.userId] ? '✅ 복사됨!' : '📋 평어 복사'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => generateComment(student)}
+                  disabled={isLoading}
+                  className="w-full border-2 border-dashed border-purple-200 text-purple-500 rounded-xl py-4 text-sm font-medium hover:bg-purple-50 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <><span className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />AI가 평어를 작성하는 중...</>
+                  ) : (
+                    <>✨ 이 학생의 평어 생성하기</>
+                  )}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 안내 문구 */}
+      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-xs text-yellow-700">
+        💡 생성된 평어는 <strong>참고용</strong>입니다. 실제 학생부 기록 전에 교사가 내용을 검토·수정하세요. 텍스트 영역을 직접 편집할 수 있습니다.
       </div>
     </div>
   );
