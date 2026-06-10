@@ -99,7 +99,7 @@ export const PROBLEMS: Problem[] = [
     xLabel: '열차 칸 수(☐)',
     yLabel: '연결 고리 수(△)',
     hint: '열차 칸이 2개이면 연결 고리는 1개예요. 칸 수에서 얼마를 빼면 될까요?',
-    correctFormulas: ['△=☐-1', '☐-1=△'],
+    correctFormulas: ['△=☐-1', '☐-1=△', '☐=△+1', '△+1=☐'],
     explanation: '열차 칸 수(☐)에서 1을 빼면 연결 고리 수(△)가 됩니다. → △ = ☐ - 1',
     type: 'sub',
     difficulty: 2,
@@ -145,12 +145,16 @@ export const PROBLEMS: Problem[] = [
   },
 ];
 
+function normalize(s: string) {
+  return s
+    .replace(/\s/g, '')
+    .replace(/×/g, '*')
+    .replace(/÷/g, '/');
+}
+
 export function checkAnswer(problemId: string, userAnswer: string): boolean {
   const problem = PROBLEMS.find((p) => p.id === problemId);
   if (!problem) return false;
-  const normalized = userAnswer.replace(/\s/g, '').replace(/×/g, '*');
-  return problem.correctFormulas.some((f) => {
-    const normF = f.replace(/\s/g, '').replace(/×/g, '*');
-    return normF === normalized;
-  });
+  const norm = normalize(userAnswer);
+  return problem.correctFormulas.some((f) => normalize(f) === norm);
 }

@@ -90,27 +90,55 @@ function CustomPracticeContent() {
     setStep('solve');
   };
 
+  // 연산자·공백을 통일해서 비교
+  const norm = (s: string) =>
+    s.replace(/\s/g, '').replace(/×/g, '*').replace(/÷/g, '/');
+
   const buildCorrectFormulas = () => {
     if (!problem) return [];
     const op = problem.operator;
     const n = problem.operand;
+    const s1 = sym1; // 기준 양 기호
+    const s2 = sym2; // 결과 양 기호
     const forms: string[] = [];
+
     if (op === '×' || op === '*') {
-      forms.push(`${sym2}=${sym1}×${n}`, `${sym2}=${sym1}*${n}`, `${sym1}×${n}=${sym2}`, `${sym1}*${n}=${sym2}`);
+      // △=☐×n  /  ☐×n=△  /  n×☐=△
+      forms.push(
+        `${s2}=${s1}×${n}`, `${s2}=${s1}*${n}`,
+        `${s1}×${n}=${s2}`, `${s1}*${n}=${s2}`,
+        `${s2}=${n}×${s1}`, `${s2}=${n}*${s1}`,
+        `${n}×${s1}=${s2}`, `${n}*${s1}=${s2}`,
+      );
     } else if (op === '÷' || op === '/') {
-      forms.push(`${sym2}=${sym1}÷${n}`, `${sym2}=${sym1}/${n}`, `${sym1}÷${n}=${sym2}`, `${sym1}/${n}=${sym2}`);
+      // △=☐÷n  /  ☐÷n=△  /  반대로 ☐=△×n
+      forms.push(
+        `${s2}=${s1}÷${n}`, `${s2}=${s1}/${n}`,
+        `${s1}÷${n}=${s2}`, `${s1}/${n}=${s2}`,
+        `${s1}=${s2}×${n}`, `${s1}=${s2}*${n}`,
+        `${s2}×${n}=${s1}`, `${s2}*${n}=${s1}`,
+        `${s1}=${n}×${s2}`, `${s1}=${n}*${s2}`,
+      );
     } else if (op === '+') {
-      forms.push(`${sym2}=${sym1}+${n}`, `${sym1}+${n}=${sym2}`);
+      // △=☐+n  /  ☐+n=△  /  n+☐=△
+      forms.push(
+        `${s2}=${s1}+${n}`, `${s1}+${n}=${s2}`,
+        `${s2}=${n}+${s1}`, `${n}+${s1}=${s2}`,
+      );
     } else if (op === '-') {
-      forms.push(`${sym2}=${sym1}-${n}`, `${sym1}-${n}=${sym2}`);
+      // △=☐-n  /  ☐-n=△  /  반대로 ☐=△+n
+      forms.push(
+        `${s2}=${s1}-${n}`, `${s1}-${n}=${s2}`,
+        `${s1}=${s2}+${n}`, `${s2}+${n}=${s1}`,
+        `${n}+${s2}=${s1}`, `${s1}=${n}+${s2}`,
+      );
     }
     return forms;
   };
 
   const checkAnswer = () => {
     if (!problem || !answer.trim()) return;
-    const normalized = answer.replace(/\s/g, '');
-    const correct = buildCorrectFormulas().some((f) => f.replace(/\s/g, '') === normalized);
+    const correct = buildCorrectFormulas().some((f) => norm(f) === norm(answer));
     setStatus(correct ? 'correct' : 'wrong');
     if (correct) setHistory((h) => [{ item1, item2 }, ...h.slice(0, 9)]);
     if (user) {
