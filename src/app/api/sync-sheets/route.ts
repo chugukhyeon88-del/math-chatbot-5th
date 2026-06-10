@@ -30,19 +30,36 @@ function getSheetsClient() {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
-    if (!spreadsheetId) {
-      return NextResponse.json({ error: 'GOOGLE_SHEETS_ID 환경변수가 설정되지 않았습니다.' }, { status: 400 });
-    }
+  // ── 환경변수 체크 ──
+  const missing = [
+    'GOOGLE_SHEETS_ID',
+    'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+    'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+    'FIREBASE_ADMIN_CLIENT_EMAIL',
+    'FIREBASE_ADMIN_PRIVATE_KEY',
+  ].filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    return NextResponse.json({ error: `환경변수 누락: ${missing.join(', ')}` }, { status: 400 });
+  }
 
-    // Firestore에서 모든 채팅 세션 가져오기
-    const db = getAdminDb();
-    const chatSnap = await db.collection('chatSessions').get();
+  try {
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID!;
+
+    // ── STEP 1: Firebase Admin으로 Firestore 읽기 ──
+    let chatSnap;
+    try {
+      const db = getAdminDb();
+      chatSnap = await db.collection('chatSessions').get();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: `[Firestore 오류] ${msg}` }, { status: 500 });
+    }
 
     type Message = { role: string; content: string };
     const rows: (string | number)[][] = [];
 
+    type Message = { role: string; content: string };
+    const rows: (string | number)[][] = [];
     for (const doc of chatSnap.docs) {
       const data = doc.data();
       const messages: Message[] = data.messages ?? [];
@@ -61,11 +78,20 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const sheets = getSheetsClient();
-    const sheetTitle = '대화기록';
+    // ── STEP 2: Google Sheets 접근 ──
+    let sheets;
+    let meta;
+    try {
+      sheets = getSheetsClient();
+      meta = await sheets.spreadsheets.get({ spreadsheetId });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({
+        error: `[Google Sheets 오류] ${msg} — 서비스 계정이 시트에 편집자로 공유되어 있는지, Sheets API가 활성화되어 있는지 확인하세요.`,
+      }, { status: 500 });
+    }
 
-    // 시트 목록 확인
-    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetTitle = '대화기록';
     const sheetNames = meta.data.sheets?.map((s) => s.properties?.title) ?? [];
 
     // 시트가 없으면 생성
