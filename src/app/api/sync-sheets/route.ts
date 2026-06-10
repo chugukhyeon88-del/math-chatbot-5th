@@ -57,9 +57,6 @@ export async function POST(req: NextRequest) {
 
     type Message = { role: string; content: string };
     const rows: (string | number)[][] = [];
-
-    type Message = { role: string; content: string };
-    const rows: (string | number)[][] = [];
     for (const doc of chatSnap.docs) {
       const data = doc.data();
       const messages: Message[] = data.messages ?? [];
