@@ -19,6 +19,7 @@ interface StudentSummary {
 }
 
 type Tab = 'overview' | 'detail' | 'problems' | 'chat';
+type SyncState = 'idle' | 'syncing' | 'done' | 'error';
 
 export default function TeacherPage() {
   const { user, loading: authLoading, signInWithGoogle } = useAuth();
@@ -29,6 +30,24 @@ export default function TeacherPage() {
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentSummary | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
+  const [syncState, setSyncState] = useState<SyncState>('idle');
+  const [syncMsg, setSyncMsg] = useState('');
+
+  const handleSyncSheets = async () => {
+    setSyncState('syncing');
+    setSyncMsg('');
+    try {
+      const res = await fetch('/api/sync-sheets', { method: 'POST' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setSyncState('done');
+      setSyncMsg(`✅ ${data.rowCount}개 메시지를 구글 시트에 기록했어요!`);
+    } catch (e: unknown) {
+      setSyncState('error');
+      setSyncMsg(`❌ ${e instanceof Error ? e.message : '동기화 실패'}`);
+    }
+    setTimeout(() => { setSyncState('idle'); setSyncMsg(''); }, 5000);
+  };
 
   const handleLogin = async () => {
     if (password === (process.env.NEXT_PUBLIC_TEACHER_PASSWORD || 'teacher1234')) {
@@ -176,17 +195,51 @@ export default function TeacherPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">👨‍🏫 교사용 대시보드</h1>
           <p className="text-sm text-gray-500 mt-1">학생 개별 학습 현황 및 성취도</p>
         </div>
-        <button
-          onClick={loadData}
-          className="text-sm text-purple-600 border border-purple-300 px-4 py-2 rounded-xl hover:bg-purple-50 transition-colors"
-        >
-          🔄 새로고침
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 구글 시트 동기화 버튼 */}
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleSyncSheets}
+              disabled={syncState === 'syncing'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                syncState === 'syncing'
+                  ? 'bg-green-100 text-green-600 cursor-wait'
+                  : syncState === 'done'
+                  ? 'bg-green-500 text-white'
+                  : syncState === 'error'
+                  ? 'bg-red-100 text-red-600'
+                  : 'bg-green-50 text-green-700 border border-green-300 hover:bg-green-100'
+              }`}
+            >
+              {syncState === 'syncing' ? (
+                <><span className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />동기화 중...</>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                  </svg>
+                  구글 시트 동기화
+                </>
+              )}
+            </button>
+            {syncMsg && (
+              <p className={`text-xs ${syncState === 'error' ? 'text-red-500' : 'text-green-600'}`}>
+                {syncMsg}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={loadData}
+            className="text-sm text-purple-600 border border-purple-300 px-4 py-2 rounded-xl hover:bg-purple-50 transition-colors"
+          >
+            🔄 새로고침
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2 mb-6 flex-wrap">
