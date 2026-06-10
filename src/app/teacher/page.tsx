@@ -15,7 +15,10 @@ interface StudentSummary {
   lastActive: string;
   problemResults: Record<string, { correct: boolean; attempts: number }>;
   chatCount: number;
+  chatSessions: ChatSession[];
 }
+
+type Tab = 'overview' | 'detail' | 'problems' | 'chat';
 
 export default function TeacherPage() {
   const { user, loading: authLoading, signInWithGoogle } = useAuth();
@@ -25,7 +28,7 @@ export default function TeacherPage() {
   const [loading, setLoading] = useState(false);
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentSummary | null>(null);
-  const [tab, setTab] = useState<'overview' | 'detail' | 'problems'>('overview');
+  const [tab, setTab] = useState<Tab>('overview');
 
   const handleLogin = async () => {
     if (password === (process.env.NEXT_PUBLIC_TEACHER_PASSWORD || 'teacher1234')) {
@@ -54,6 +57,7 @@ export default function TeacherPage() {
             lastActive: '',
             problemResults: {},
             chatCount: 0,
+            chatSessions: [],
           };
         }
         const s = map[a.userId];
@@ -71,8 +75,24 @@ export default function TeacherPage() {
         }
       }
 
+      // 채팅 세션을 학생별로 분류
       for (const c of chatSessions) {
-        if (map[c.userId]) map[c.userId].chatCount++;
+        if (!map[c.userId]) {
+          map[c.userId] = {
+            userId: c.userId,
+            userName: c.userName,
+            userEmail: c.userEmail,
+            totalAttempts: 0,
+            correctCount: 0,
+            totalScore: 0,
+            lastActive: '',
+            problemResults: {},
+            chatCount: 0,
+            chatSessions: [],
+          };
+        }
+        map[c.userId].chatCount++;
+        map[c.userId].chatSessions.push(c);
       }
 
       setStudents(Object.values(map).sort((a, b) => b.totalScore - a.totalScore));
@@ -85,7 +105,6 @@ export default function TeacherPage() {
     }
   };
 
-  // 1단계: Firebase 로그인 확인
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -121,7 +140,6 @@ export default function TeacherPage() {
     );
   }
 
-  // 2단계: 교사 비밀번호 확인
   if (!authenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100">
@@ -149,7 +167,13 @@ export default function TeacherPage() {
     );
   }
 
-  // 3단계: 대시보드
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'overview', label: '📊 학생 현황' },
+    { key: 'detail',   label: '📋 상세 보기' },
+    { key: 'problems', label: '📝 문제별 분석' },
+    { key: 'chat',     label: '💬 대화 내용' },
+  ];
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-6">
@@ -165,17 +189,16 @@ export default function TeacherPage() {
         </button>
       </div>
 
-      {/* 탭 */}
-      <div className="flex gap-2 mb-6">
-        {(['overview', 'detail', 'problems'] as const).map((t) => (
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {TABS.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.key}
+            onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              tab === t ? 'bg-purple-500 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              tab === t.key ? 'bg-purple-500 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            {t === 'overview' ? '📊 학생 현황' : t === 'detail' ? '📋 상세 보기' : '📝 문제별 분석'}
+            {t.label}
           </button>
         ))}
       </div>
@@ -200,64 +223,61 @@ export default function TeacherPage() {
         </div>
       ) : (
         <>
-          {tab === 'overview' && <OverviewTab students={students} onSelect={(s) => { setSelectedStudent(s); setTab('detail'); }} />}
-          {tab === 'detail' && <DetailTab students={students} selected={selectedStudent} onSelect={setSelectedStudent} />}
-          {tab === 'problems' && <ProblemsTab students={students} />}
+          {tab === 'overview'  && <OverviewTab students={students} onSelect={(s) => { setSelectedStudent(s); setTab('detail'); }} />}
+          {tab === 'detail'    && <DetailTab students={students} selected={selectedStudent} onSelect={setSelectedStudent} />}
+          {tab === 'problems'  && <ProblemsTab students={students} />}
+          {tab === 'chat'      && <ChatTab students={students} selected={selectedStudent} onSelect={setSelectedStudent} />}
         </>
       )}
     </div>
   );
 }
 
+/* ───────────────────────── Overview Tab ───────────────────────── */
 function OverviewTab({ students, onSelect }: { students: StudentSummary[]; onSelect: (s: StudentSummary) => void }) {
-  const totalStudents = students.length;
-  const avgScore = students.reduce((a, s) => a + s.totalScore, 0) / Math.max(totalStudents, 1);
-  const avgAccuracy = students.reduce((a, s) => a + (s.totalAttempts ? s.correctCount / s.totalAttempts * 100 : 0), 0) / Math.max(totalStudents, 1);
+  const total = students.length;
+  const avgScore = students.reduce((a, s) => a + s.totalScore, 0) / Math.max(total, 1);
+  const avgAcc   = students.reduce((a, s) => a + (s.totalAttempts ? s.correctCount / s.totalAttempts * 100 : 0), 0) / Math.max(total, 1);
 
   return (
     <div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
-          { label: '참여 학생', value: `${totalStudents}명`, icon: '👥' },
-          { label: '평균 점수', value: `${avgScore.toFixed(0)}점`, icon: '📈' },
-          { label: '평균 정답률', value: `${avgAccuracy.toFixed(1)}%`, icon: '✅' },
+          { label: '참여 학생',    value: `${total}명`,                   icon: '👥' },
+          { label: '평균 점수',    value: `${avgScore.toFixed(0)}점`,     icon: '📈' },
+          { label: '평균 정답률',  value: `${avgAcc.toFixed(1)}%`,        icon: '✅' },
           { label: '총 채팅 횟수', value: `${students.reduce((a, s) => a + s.chatCount, 0)}회`, icon: '💬' },
-        ].map((card) => (
-          <div key={card.label} className="bg-white rounded-2xl border border-gray-100 p-5">
-            <div className="text-2xl mb-1">{card.icon}</div>
-            <div className="text-2xl font-bold text-gray-800">{card.value}</div>
-            <div className="text-xs text-gray-400 mt-1">{card.label}</div>
+        ].map((c) => (
+          <div key={c.label} className="bg-white rounded-2xl border border-gray-100 p-5">
+            <div className="text-2xl mb-1">{c.icon}</div>
+            <div className="text-2xl font-bold text-gray-800">{c.value}</div>
+            <div className="text-xs text-gray-400 mt-1">{c.label}</div>
           </div>
         ))}
       </div>
-
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th className="text-left px-5 py-3 text-gray-500 font-medium">순위</th>
-              <th className="text-left px-5 py-3 text-gray-500 font-medium">학생</th>
-              <th className="text-center px-4 py-3 text-gray-500 font-medium">점수</th>
-              <th className="text-center px-4 py-3 text-gray-500 font-medium">정답률</th>
-              <th className="text-center px-4 py-3 text-gray-500 font-medium">시도 수</th>
-              <th className="text-center px-4 py-3 text-gray-500 font-medium">챗봇 대화</th>
-              <th className="text-center px-4 py-3 text-gray-500 font-medium">마지막 활동</th>
+              {['순위','학생','점수','정답률','시도 수','챗봇 대화','마지막 활동'].map((h) => (
+                <th key={h} className={`${h === '순위' || h === '학생' ? 'text-left' : 'text-center'} px-4 py-3 text-gray-500 font-medium`}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {students.map((s, i) => {
-              const accuracy = s.totalAttempts ? (s.correctCount / s.totalAttempts * 100) : 0;
+              const acc = s.totalAttempts ? (s.correctCount / s.totalAttempts * 100) : 0;
               return (
                 <tr key={s.userId} className="border-b border-gray-50 hover:bg-purple-50 cursor-pointer transition-colors" onClick={() => onSelect(s)}>
-                  <td className="px-5 py-3 text-gray-400 font-mono">#{i + 1}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-4 py-3 text-gray-400 font-mono">#{i+1}</td>
+                  <td className="px-4 py-3">
                     <div className="font-semibold text-gray-800">{s.userName || '이름 없음'}</div>
                     <div className="text-xs text-gray-400">{s.userEmail}</div>
                   </td>
                   <td className="px-4 py-3 text-center font-bold text-blue-600">{s.totalScore}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${accuracy >= 80 ? 'bg-green-100 text-green-700' : accuracy >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                      {accuracy.toFixed(0)}%
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${acc >= 80 ? 'bg-green-100 text-green-700' : acc >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                      {acc.toFixed(0)}%
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center text-gray-600">{s.totalAttempts}</td>
@@ -273,27 +293,16 @@ function OverviewTab({ students, onSelect }: { students: StudentSummary[]; onSel
   );
 }
 
+/* ───────────────────────── Detail Tab ───────────────────────── */
 function DetailTab({ students, selected, onSelect }: { students: StudentSummary[]; selected: StudentSummary | null; onSelect: (s: StudentSummary) => void }) {
   const s = selected || students[0];
   if (!s) return null;
-  const accuracy = s.totalAttempts ? (s.correctCount / s.totalAttempts * 100) : 0;
-  const solvedProblems = PROBLEMS.filter((p) => s.problemResults[p.id]?.correct).length;
+  const acc = s.totalAttempts ? (s.correctCount / s.totalAttempts * 100) : 0;
+  const solved = PROBLEMS.filter((p) => s.problemResults[p.id]?.correct).length;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-      <div className="bg-white rounded-2xl border border-gray-100 p-4">
-        <h3 className="text-sm font-semibold text-gray-500 mb-3">학생 목록</h3>
-        <div className="space-y-2">
-          {students.map((student) => (
-            <button key={student.userId} onClick={() => onSelect(student)}
-              className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-colors ${student.userId === s.userId ? 'bg-purple-100 text-purple-700' : 'hover:bg-gray-50 text-gray-600'}`}>
-              <div className="font-medium">{student.userName || '이름 없음'}</div>
-              <div className="text-xs opacity-60">{student.totalScore}점</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
+      <StudentList students={students} selectedId={s.userId} onSelect={onSelect} />
       <div className="md:col-span-2 space-y-4">
         <div className="bg-white rounded-2xl border border-gray-100 p-6">
           <div className="flex items-center gap-3 mb-4">
@@ -305,9 +314,9 @@ function DetailTab({ students, selected, onSelect }: { students: StudentSummary[
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: '총점', value: `${s.totalScore}점` },
-              { label: '정답률', value: `${accuracy.toFixed(0)}%` },
-              { label: '풀이 문제', value: `${solvedProblems}/${PROBLEMS.length}` },
+              { label: '총점',      value: `${s.totalScore}점` },
+              { label: '정답률',    value: `${acc.toFixed(0)}%` },
+              { label: '풀이 문제', value: `${solved}/${PROBLEMS.length}` },
               { label: '챗봇 대화', value: `${s.chatCount}회` },
             ].map((item) => (
               <div key={item.label} className="bg-gray-50 rounded-xl p-3 text-center">
@@ -317,21 +326,20 @@ function DetailTab({ students, selected, onSelect }: { students: StudentSummary[
             ))}
           </div>
         </div>
-
         <div className="bg-white rounded-2xl border border-gray-100 p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">문제별 결과</h3>
           <div className="space-y-2">
             {PROBLEMS.map((p) => {
-              const result = s.problemResults[p.id];
+              const r = s.problemResults[p.id];
               return (
                 <div key={p.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                   <div className="flex items-center gap-2">
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${result?.correct ? 'bg-green-100 text-green-600' : result ? 'bg-red-100 text-red-500' : 'bg-gray-100 text-gray-400'}`}>
-                      {result?.correct ? '✓' : result ? '✗' : '—'}
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${r?.correct ? 'bg-green-100 text-green-600' : r ? 'bg-red-100 text-red-500' : 'bg-gray-100 text-gray-400'}`}>
+                      {r?.correct ? '✓' : r ? '✗' : '—'}
                     </span>
                     <span className="text-sm text-gray-700">{p.title}</span>
                   </div>
-                  <div className="text-xs text-gray-400">{result ? `${result.attempts}회 시도` : '미풀이'}</div>
+                  <div className="text-xs text-gray-400">{r ? `${r.attempts}회 시도` : '미풀이'}</div>
                 </div>
               );
             })}
@@ -342,6 +350,7 @@ function DetailTab({ students, selected, onSelect }: { students: StudentSummary[
   );
 }
 
+/* ───────────────────────── Problems Tab ───────────────────────── */
 function ProblemsTab({ students }: { students: StudentSummary[] }) {
   return (
     <div className="space-y-4">
@@ -349,7 +358,7 @@ function ProblemsTab({ students }: { students: StudentSummary[] }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {PROBLEMS.map((p) => {
           const attempted = students.filter((s) => s.problemResults[p.id]);
-          const correct = students.filter((s) => s.problemResults[p.id]?.correct);
+          const correct   = students.filter((s) => s.problemResults[p.id]?.correct);
           const rate = attempted.length ? (correct.length / attempted.length * 100) : 0;
           return (
             <div key={p.id} className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -369,6 +378,128 @@ function ProblemsTab({ students }: { students: StudentSummary[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── Chat Tab ───────────────────────── */
+function ChatTab({ students, selected, onSelect }: { students: StudentSummary[]; selected: StudentSummary | null; onSelect: (s: StudentSummary) => void }) {
+  const s = selected || students.find((st) => st.chatSessions.length > 0) || students[0];
+  const [openSession, setOpenSession] = useState<string | null>(null);
+
+  if (!s) return null;
+
+  const sessions = s.chatSessions;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      {/* 학생 목록 */}
+      <StudentList students={students} selectedId={s.userId} onSelect={(st) => { onSelect(st); setOpenSession(null); }} />
+
+      {/* 대화 세션 목록 + 내용 */}
+      <div className="md:col-span-2 space-y-3">
+        {/* 학생 헤더 */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-xl">👤</div>
+          <div>
+            <p className="font-semibold text-gray-800">{s.userName || '이름 없음'}</p>
+            <p className="text-xs text-gray-400">{s.userEmail} · 대화 세션 {sessions.length}개</p>
+          </div>
+        </div>
+
+        {sessions.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
+            <p className="text-4xl mb-3">💬</p>
+            <p className="text-gray-500 text-sm">이 학생의 대화 기록이 없어요.</p>
+          </div>
+        ) : (
+          sessions.map((session, idx) => {
+            const isOpen = openSession === session.id;
+            const firstMsg = session.messages?.find((m) => m.role === 'user');
+            const ts = (session.updatedAt as unknown as { toDate?: () => Date })?.toDate?.();
+            const dateStr = ts ? ts.toLocaleString('ko-KR') : '';
+            const msgCount = session.messages?.length ?? 0;
+
+            return (
+              <div key={session.id ?? idx} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                {/* 세션 헤더 (클릭으로 펼치기) */}
+                <button
+                  className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+                  onClick={() => setOpenSession(isOpen ? null : (session.id ?? String(idx)))}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {firstMsg?.content.slice(0, 40) ?? '(내용 없음)'}
+                        {(firstMsg?.content.length ?? 0) > 40 && '...'}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">{dateStr} · {msgCount}개 메시지</p>
+                    </div>
+                  </div>
+                  <span className={`text-gray-400 transition-transform flex-shrink-0 ml-3 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+
+                {/* 펼쳐진 대화 내용 */}
+                {isOpen && (
+                  <div className="border-t border-gray-100 px-5 py-4 space-y-3 max-h-[500px] overflow-y-auto bg-gray-50">
+                    {session.messages?.map((msg, mi) => (
+                      <div key={mi} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        {msg.role === 'assistant' && (
+                          <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs flex-shrink-0 mt-1">🤖</div>
+                        )}
+                        <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+                          msg.role === 'user'
+                            ? 'bg-blue-500 text-white rounded-tr-sm'
+                            : 'bg-white text-gray-800 border border-gray-200 rounded-tl-sm'
+                        }`}>
+                          {msg.content}
+                        </div>
+                        {msg.role === 'user' && (
+                          <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-xs flex-shrink-0 mt-1">👤</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────────────── 공통: 학생 목록 사이드바 ───────────────────────── */
+function StudentList({ students, selectedId, onSelect }: {
+  students: StudentSummary[];
+  selectedId: string;
+  onSelect: (s: StudentSummary) => void;
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-4">
+      <h3 className="text-sm font-semibold text-gray-500 mb-3">학생 목록</h3>
+      <div className="space-y-1.5">
+        {students.map((student) => (
+          <button
+            key={student.userId}
+            onClick={() => onSelect(student)}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${
+              student.userId === selectedId
+                ? 'bg-purple-100 text-purple-700'
+                : 'hover:bg-gray-50 text-gray-600'
+            }`}
+          >
+            <div className="font-medium">{student.userName || '이름 없음'}</div>
+            <div className="text-xs opacity-60 mt-0.5">
+              {student.totalScore}점 · 대화 {student.chatCount}회
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
