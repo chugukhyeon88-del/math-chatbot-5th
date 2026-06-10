@@ -145,16 +145,15 @@ export const PROBLEMS: Problem[] = [
   },
 ];
 
-function normalize(s: string) {
-  return s
-    .replace(/\s/g, '')
-    .replace(/×/g, '*')
-    .replace(/÷/g, '/');
-}
+import { checkFormulaAgainstTable } from './formulaChecker';
 
 export function checkAnswer(problemId: string, userAnswer: string): boolean {
   const problem = PROBLEMS.find((p) => p.id === problemId);
   if (!problem) return false;
-  const norm = normalize(userAnswer);
-  return problem.correctFormulas.some((f) => normalize(f) === norm);
+  return checkFormulaAgainstTable(
+    userAnswer,
+    '☐', '△',
+    problem.table.x,
+    problem.table.y,
+  );
 }
